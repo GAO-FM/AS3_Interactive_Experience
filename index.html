@@ -41,6 +41,12 @@
     align-items:center; justify-content:center; background:#14161a; font-size:13px; color:var(--dim);}
   .spin{width:36px; height:36px; border:3px solid var(--line); border-top-color:var(--accent); animation:sp 1s linear infinite;}
   @keyframes sp{to{transform:rotate(360deg)}}
+  /* 子弹时间：上下黑边 + 四周暗角，出现即慢放， industrial 风格不加花字 */
+  #bulletFx{position:absolute; inset:0; z-index:4; pointer-events:none; opacity:0; transition:opacity .3s;
+    background:
+      linear-gradient(to bottom, rgba(0,0,0,.6) 0, rgba(0,0,0,.6) 7%, transparent 7.1%, transparent 92.9%, rgba(0,0,0,.6) 93%),
+      radial-gradient(ellipse at center, transparent 52%, rgba(8,10,14,.6) 100%);}
+  #app.bullet #bulletFx{opacity:1;}
 </style>
 <script type="importmap">
 { "imports": {
@@ -52,6 +58,7 @@
 <body>
 <div id="app">
   <div id="game"></div>
+  <div id="bulletFx"></div>
   <div id="hud">
     <div class="stat"><span id="score">0</span><label>SCORE</label></div>
     <div class="stat"><span id="left">0</span><label>BUILDINGS</label></div>
@@ -434,6 +441,8 @@ function buildDozerBody(x=0,z=30){
 // getImpactVelocityAlongNormal 会因方程复用抛错，这是之前报错的真正病根。
 const pendingHits=[];
 function onDozerCollide(e){ /* 仅保留监听以唤醒，无读取 */ }
+// 碎块 / 倒塌块 body.id 集合：撞到它们只给轻音效，绝不震屏、绝不减速
+const fragIds=new Set();
 function drainCollideEvents(){
   const b=dozer.body;
   const contacts=b.world ? b.world.contacts : [];
@@ -443,6 +452,8 @@ function drainCollideEvents(){
     if(c.bi!==b && c.bj!==b) continue;
     let v=0; try{ v=Math.abs(c.getImpactVelocityAlongNormal()||0); }catch(_){ continue; }
     if(!isFinite(v)||v<=0) continue;
+    // 碎块 / 倒塌块：只记轻蹭音效，绝不震屏、绝不减速
+    if(fragIds.has(o.id)){ if(v>7) pendingHits.push({frag:true,v}); continue; }
     const d=destructibles.get(o.id);
     const spd=Math.abs(dozer.speed);
     if(d){ if(v>2.2||spd>5) pendingHits.push({d,v,spd}); }
@@ -452,12 +463,18 @@ function drainCollideEvents(){
 function processHits(){
   for(let i=0;i<pendingHits.length;i++){
     const h=pendingHits[i];
+    // 碎块 / 倒塌块蹭车：只给一声轻响，绝不震屏、绝不减速
+    if(h.frag){ if(h.v>7) thump(.25); continue; }
     const {d,v,spd}=h;
     if(d){
       if(d.hp<=0 || !destructibles.has(d.body.id)) continue;
       const hard=spd>11||v>8;
       damageDestructible(d, hard?2:1, v, true);
-      if(v>3){ thump(Math.min(1,v/12)); shakeCam(Math.min(1.2,v*.07)); }
+      if(v>3){ thump(Math.min(1,v/12)); }
+      // 震屏：每个可撞物只在第一次被撞到时抖一下；碎块剐蹭、重复顶撞、撞墙都不抖
+      // 子弹时间：只有楼房首撞才触发，碎块/小物件/重复顶撞不触发
+      if(!d._shook){ d._shook=true; shakeCam(d.kind==='building'?1.2:d.kind==='car'?.8:.5);
+        if(d.kind==='building') triggerBullet(); }
       // 撞上东西：同一个目标 0.5s 内只罚一次速（按撞击强度 8%~18%），
       // 之前贴着建筑每帧连乘 .55，速度几帧就归零，这就是短暂停顿的来源
       const now=performance.now();
@@ -467,11 +484,16 @@ function processHits(){
         step._hitCd=.12;
       }
     } else {
-      thump(.5); shakeCam(.6); puff(dozer.body.position.x,1,dozer.body.position.z,8,6,5);
+      // 撞墙/地面：震屏同样只给“首撞一下”，之后 1s 内顶墙剐蹭不再抖；
+      // 碎块走 fragIds 分支，只给轻响，天然不抖
+      const now2=performance.now();
+      if(!step._lastWallShake || now2-step._lastWallShake>1000){
+        step._lastWallShake=now2;
+        thump(.5); shakeCam(.4); puff(dozer.body.position.x,1,dozer.body.position.z,8,6,5);
+      }
       // 撞墙/地面：同上，0.5s 内只罚一次
-      const now=performance.now();
-      if(!step._lastWallSlow || now-step._lastWallSlow>500){
-        step._lastWallSlow=now;
+      if(!step._lastWallSlow || now2-step._lastWallSlow>500){
+        step._lastWallSlow=now2;
         dozer.speed*=.85; step._hitCd=.12;
       }
     }
@@ -503,7 +525,7 @@ function squashSmall(d, dirX, dirZ){
   if(comboT>0) comboN++; else comboN=1;
   comboT=1.4;
   addScore(d.score+(comboN>=2?comboN*30:0),p.x,p.z,comboN>=2?(' x'+comboN):'');
-  crashBig(); shakeCam(.5);
+  crashBig();
   updateHUD();
 }
 function damageDestructible(d,dmg,impactV=5,byDozer=false){
@@ -540,6 +562,14 @@ function damageDestructible(d,dmg,impactV=5,byDozer=false){
   toppleBuilding(d,impactV);
 }
 let camShake=0; function shakeCam(n){ camShake=Math.min(1.6,camShake+n); }
+// 子弹时间：仅楼房首撞触发，整局放慢 ~1.1s（0.25 倍速），碎块/小物件/重复顶撞不触发
+let bulletT=0, bulletCd=0, timeScale=1;
+function triggerBullet(dur=1.1){
+  const now=performance.now();
+  if(now-bulletCd<2500) return; // 连续撞多栋楼不连发，2.5s 内只放一次
+  bulletCd=now; bulletT=Math.max(bulletT,dur);
+  document.getElementById('app').classList.add('bullet');
+}
 // 楼房倒塌：整栋变成动态刚体向前扑倒，落地后碎裂成块，块再慢慢消失
 function toppleBuilding(d,impactV=8){
   const p=d.body.position.clone(), s=d.size;
@@ -572,17 +602,19 @@ function toppleBuilding(d,impactV=8){
     body.angularVelocity.set(dir.z*.5,0,-dir.x*.5);
     body.angularDamping=.25; body.linearDamping=.05; body.allowSleep=false;
     world.addBody(body);
+    fragIds.add(body.id);
     fallings.push({mesh,body,life:9+Math.random()*2,big:true});
   }
   puff(p.x,3,p.z,40,9,10);
   puff(p.x,6,p.z,16,10,12);
-  crashBig(); shakeCam(1.2);
+  crashBig();
   updateHUD();
 }
 // 倒塌块落地碎裂：fallings 里的块在第一次重撞击 / 超时后碎成小块
 function shatterFalling(f, impactV=6){
   const idx=fallings.indexOf(f);
   if(idx>=0) fallings.splice(idx,1);
+  fragIds.delete(f.body.id);
   world.removeBody(f.body); scene.remove(f.mesh);
   const p=f.body.position, g=f.mesh.geometry.parameters;
   const w=g.width||3, h=g.height||2, d=g.depth||3;
@@ -603,8 +635,9 @@ function shatterFalling(f, impactV=6){
     body.angularDamping=.3; body.linearDamping=.05; body.allowSleep=true;
     body.sleepSpeedLimit=.6; body.sleepTimeLimit=.8;
     world.addBody(body);
+    fragIds.add(body.id);
     debris.push({mesh,body,life:6+Math.random()*3});
-    if(debris.length>320){ const old=debris.shift(); scene.remove(old.mesh); world.removeBody(old.body); }
+    if(debris.length>320){ const old=debris.shift(); fragIds.delete(old.body.id); scene.remove(old.mesh); world.removeBody(old.body); }
   }
   puff(p.x,2,p.z,20,8,8);
 }
@@ -636,12 +669,13 @@ function demolish(d,impactV=8){
     body.angularDamping=.3; body.linearDamping=.05; body.allowSleep=true;
     body.sleepSpeedLimit=.6; body.sleepTimeLimit=.8;
     world.addBody(body);
+    fragIds.add(body.id);
     debris.push({mesh,body,life:7+Math.random()*3});
-    if(debris.length>320){ const old=debris.shift(); scene.remove(old.mesh); world.removeBody(old.body); }
+    if(debris.length>320){ const old=debris.shift(); fragIds.delete(old.body.id); scene.remove(old.mesh); world.removeBody(old.body); }
   }
   puff(p.x,3,p.z,16,5,10);
   puff(p.x,6,p.z,16,10,12);
-  crashBig(); shakeCam(.8);
+  crashBig();
   updateHUD();
 }
 function spawnDebrisChunk(x,y,z,color,scale=1){
@@ -653,13 +687,13 @@ function spawnDebrisChunk(x,y,z,color,scale=1){
   body.position.set(x,y,z);
   body.velocity.set((Math.random()-.5)*8,5+Math.random()*5,(Math.random()-.5)*8);
   body.angularVelocity.set(Math.random()*8,Math.random()*8,Math.random()*8);
-  world.addBody(body); debris.push({mesh,body,life:4});
+  world.addBody(body); fragIds.add(body.id); debris.push({mesh,body,life:4});
 }
 
 /* ================= 建城 ================= */
 function clearCity(){
   destructibles.forEach(d=>{ world.removeBody(d.body); scene.remove(d.group); });
-  destructibles.clear(); cars.length=0;
+  destructibles.clear(); cars.length=0; fragIds.clear();
   debris.forEach(o=>{ scene.remove(o.mesh); world.removeBody(o.body); }); debris.length=0;
   fallings.forEach(f=>{ scene.remove(f.mesh); if(f.body) world.removeBody(f.body); }); fallings.length=0;
   floaters.forEach(f=>scene.remove(f.s)); floaters.length=0;
@@ -811,7 +845,7 @@ function step(dt){
   for(let i=debris.length-1;i>=0;i--){ const o=debris[i]; o.life-=dt;
     const v=o.body.velocity, sp=v.length();
     if(sp>MAX_DEBRIS_VEL) v.scale(MAX_DEBRIS_VEL/sp,v);
-    if(o.life<=0){ scene.remove(o.mesh); world.removeBody(o.body); debris.splice(i,1);
+    if(o.life<=0){ scene.remove(o.mesh); world.removeBody(o.body); fragIds.delete(o.body.id); debris.splice(i,1);
       o.mesh.geometry.dispose(); continue; }
     if(o.life<1.2){ const s=Math.max(.01,o.life/1.2); o.mesh.scale.setScalar(s); }
   }
@@ -830,7 +864,8 @@ function step(dt){
   destructibles.forEach(d=>{ if(d.kind==='car'){ d.group.position.copy(renderPos(d.body)); d.group.quaternion.copy(renderQuat(d.body));
     const sp2=d.body.velocity.length();
     if(sp2>9&&!d._hit){ d._hit=true; setTimeout(()=>d._hit=false,600);
-      if(sp2>13){ d.hp-=1; puff(d.body.position.x,2,d.body.position.z,10,6,7); clank(); shakeCam(.4);
+      if(sp2>13){ d.hp-=1; puff(d.body.position.x,2,d.body.position.z,10,6,7); clank();
+        if(!d._shook){ d._shook=true; shakeCam(.4); }
         if(d.hp<=0&&!d.wrecked){ d.wrecked=true; demolish(d,sp2); } } }
   }});
   debris.forEach(o=>{ o.mesh.position.copy(renderPos(o.body)); o.mesh.quaternion.copy(renderQuat(o.body)); });
@@ -867,7 +902,13 @@ function step(dt){
 function frame(){
   // 物理错误只记控制台，不再弹条打扰玩家
   requestAnimationFrame(frame);
-  const dt=Math.min(.05,clock.getDelta());
+  const rawDt=Math.min(.05,clock.getDelta());
+  // 子弹时间：慢进快出，持续 bulletT 秒（真实时间），其余时间 timeScale 回到 1
+  if(bulletT>0) bulletT-=rawDt;
+  const target=bulletT>0?0.25:1;
+  timeScale+=(target-timeScale)*Math.min(1,rawDt*(bulletT>0?6:3));
+  if(bulletT<=0&&timeScale>0.99){ timeScale=1; document.getElementById('app').classList.remove('bullet'); }
+  const dt=rawDt*timeScale;
   try{ step(dt); }catch(err){ console.error('[physics]',err); }
   renderer.render(scene,camera);
 }
