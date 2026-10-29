@@ -149,15 +149,22 @@ world.allowSleep=true;
 world.defaultContactMaterial.friction=.45;
 world.defaultContactMaterial.restitution=.08;
 const matGround=new CANNON.Material('ground'), matBox=new CANNON.Material('box');
+const matDozer=new CANNON.Material('dozer');
+const wallMat=new CANNON.Material('wall');
 world.addContactMaterial(new CANNON.ContactMaterial(matGround,matBox,{friction:.5,restitution:.05}));
 world.addContactMaterial(new CANNON.ContactMaterial(matBox,matBox,{friction:.4,restitution:.12}));
+// 推土机履带：低摩擦、零回弹，高压过碎块/地面时不被接触求解器拽住或弹开；
+// 建筑碎块之间仍保持高摩擦堆叠，只有车体打滑阻力小
+world.addContactMaterial(new CANNON.ContactMaterial(matGround,matDozer,{friction:.06,restitution:0}));
+world.addContactMaterial(new CANNON.ContactMaterial(matBox,matDozer,{friction:.08,restitution:0}));
+world.addContactMaterial(new CANNON.ContactMaterial(matDozer,matDozer,{friction:.08,restitution:0}));
+world.addContactMaterial(new CANNON.ContactMaterial(wallMat,matDozer,{friction:.1,restitution:0}));
 
 const ARENA=92; // 半径
 (function ground(){
   const b=new CANNON.Body({mass:0,material:matGround,shape:new CANNON.Plane()});
   b.quaternion.setFromEuler(-Math.PI/2,0,0); world.addBody(b);
-  // 四周围墙（隐形）
-  const wallMat=new CANNON.Material('wall');
+  // 四周围墙（隐形）：复用上面的 wallMat，注意别再 const 重复声明
   const mk=(x,z,w,d)=>{ const wb=new CANNON.Body({mass:0,material:wallMat});
     wb.addShape(new CANNON.Box(new CANNON.Vec3(w/2,6,d/2))); wb.position.set(x,4,z); world.addBody(wb); };
   mk(0,-ARENA-2,ARENA*2+20,4); mk(0,ARENA+2,ARENA*2+20,4);
@@ -408,11 +415,18 @@ function buildDozerMesh(){
   scene.add(g);
 }
 function buildDozerBody(x=0,z=30){
-  const body=new CANNON.Body({mass:70,material:matBox});
+  // 车重 110：碎块（1~10）撞上来基本没感觉，只有“顿”没有“飞”
+  const body=new CANNON.Body({mass:110,material:matDozer});
   body.addShape(new CANNON.Box(new CANNON.Vec3(1.9,1.1,2.9)),new CANNON.Vec3(0,1.2,0));
   body.addShape(new CANNON.Box(new CANNON.Vec3(2.7,.75,.3)),new CANNON.Vec3(0,1.0,4.0));
   body.position.set(x,2.2,z);
-  body.angularDamping=.88; body.linearDamping=.08; body.allowSleep=false;
+  // 出生就面朝 -Z（车尾对着跟随相机），和 resetDozer 一致；
+  // 否则第一条命车头朝着相机，按 A 会往屏幕右边跑，像“反着开”
+  body.quaternion.setFromEuler(0,Math.PI,0);
+  // 角阻尼不能太大：cannon 会按 (1-damping)^dt 吃掉我们每帧给的转向角速度，
+  // 之前 0.88 直接把转弯掐死了。Y 轴转向靠代码控，只用小阻尼防抖；
+  // X/Z 翻滚在 step 里手动压住。
+  body.angularDamping=.15; body.linearDamping=.08; body.allowSleep=false;
   world.addBody(body); dozer.body=body;
   body.addEventListener('collide',onDozerCollide);
 }
@@ -444,8 +458,22 @@ function processHits(){
       const hard=spd>11||v>8;
       damageDestructible(d, hard?2:1, v, true);
       if(v>3){ thump(Math.min(1,v/12)); shakeCam(Math.min(1.2,v*.07)); }
+      // 撞上东西：同一个目标 0.5s 内只罚一次速（按撞击强度 8%~18%），
+      // 之前贴着建筑每帧连乘 .55，速度几帧就归零，这就是短暂停顿的来源
+      const now=performance.now();
+      if(!d.wrecked && (!d._lastSlow || now-d._lastSlow>500)){
+        d._lastSlow=now;
+        dozer.speed*=1-Math.min(.18,Math.max(.08,v*.012));
+        step._hitCd=.12;
+      }
     } else {
       thump(.5); shakeCam(.6); puff(dozer.body.position.x,1,dozer.body.position.z,8,6,5);
+      // 撞墙/地面：同上，0.5s 内只罚一次
+      const now=performance.now();
+      if(!step._lastWallSlow || now-step._lastWallSlow>500){
+        step._lastWallSlow=now;
+        dozer.speed*=.85; step._hitCd=.12;
+      }
     }
   }
   pendingHits.length=0;
@@ -533,13 +561,15 @@ function toppleBuilding(d,impactV=8){
     mesh.castShadow=true; mesh.receiveShadow=true;
     mesh.position.set(p.x,cy,p.z);
     scene.add(mesh);
-    const body=new CANNON.Body({mass:8+segH*2,material:matBox});
+    const body=new CANNON.Body({mass:4+segH,material:matBox});
     body.addShape(new CANNON.Box(new CANNON.Vec3(s.w/2,segH/2,s.d/2)));
     body.position.set(p.x,cy,p.z);
-    // 高处块倒得更快：顶层先翻，形成压塌效果
-    const topBoost=1+(i/(segs-1||1))*3;
-    body.velocity.set(dir.x*(3+impactV*.3)*topBoost,1.5,dir.z*(3+impactV*.3)*topBoost);
-    body.angularVelocity.set(dir.z*1.2*topBoost,0,-dir.x*1.2*topBoost);
+    // 倒塌块只给一个温和的初速：朝远离车辆的方向轻推 + 轻微翻倒，
+    // 靠重力自然压塌而不是高速糊脸砸车。之前顶层 4 倍加速 + 20+ 初速
+    // 直接把 70kg 的车当球踢飞，这是撞楼被弹飞的真凶
+    const push=Math.min(4,1.5+impactV*.12);
+    body.velocity.set(dir.x*push,.8,dir.z*push);
+    body.angularVelocity.set(dir.z*.5,0,-dir.x*.5);
     body.angularDamping=.25; body.linearDamping=.05; body.allowSleep=false;
     world.addBody(body);
     fallings.push({mesh,body,life:9+Math.random()*2,big:true});
@@ -688,7 +718,9 @@ function resetDozer(x=dozer.body.position.x,z=dozer.body.position.z){
 function readInput(){
   const f=(keys['w']||keys['arrowup']?1:0)+(keys['s']||keys['arrowdown']?-0.65:0);
   const s=(keys['a']||keys['arrowleft']?1:0)+(keys['d']||keys['arrowright']?-1:0);
+  // A=+1 左转（车体坐标系），D=-1 右转；配合跟随相机恒为屏幕左/右
   const brake=!!keys[' '];
+  if((f||s||brake)&&!readInput._seen){ readInput._seen=true; console.log('[input] ok', {throttle:f,steer:s,brake}); }
   return {throttle:f,steer:s,brake};
 }
 
@@ -701,53 +733,73 @@ window.__diag = () => ({ meshes: (()=>{let n=0; scene.traverse(o=>{if(o.isMesh)n
   bodies: world.bodies.length, destr: destructibles.size,
   info: renderer.info.render,
   dozer: dozer.body? [dozer.body.position.x.toFixed(1), dozer.body.position.y.toFixed(1), dozer.body.position.z.toFixed(1)] : null,
+  yaw: dozer.body? (()=>{ const e=new CANNON.Vec3(0,0,1); dozer.body.quaternion.vmult(e,e); return Math.atan2(e.x,e.z).toFixed(2); })() : null,
   cam: camera.position.toArray().map(v=>+v.toFixed(1)), camTarget: camTarget.toArray().map(v=>+v.toFixed(1)) });
 setTimeout(()=>{ const h=$('hint'); if(h) h.style.display='none'; },6000);
 setTimeout(()=>toast('开上推土机撞过去，车速越快碎得越彻底',4200),300);
+window.__BUILD='fix2';
 
 const clock=new THREE.Clock();
 const fwd=new THREE.Vector3(), q=new THREE.Quaternion(), camTarget=new THREE.Vector3(0,0,30);
+const camTmp=new THREE.Vector3(), camSh=new THREE.Vector3(), tipTmp=new THREE.Vector3();
 let exhaustT=0;
 const MAX_DEBRIS_VEL=40;
-// 转向平滑：避免直接写角速度导致的卡顿跳变
+// 转向/速度平滑状态：全部按 dt 做指数阻尼，与帧率无关
 let steerSm=0;
+const _up=new CANNON.Vec3();
+const _yawQ=new CANNON.Quaternion();
+const _YAXIS=new CANNON.Vec3(0,1,0);
+// 渲染用插值位置（cannon-es 在 world.step(fixed, dt, maxSub) 后会写 interpolatedPosition），
+// 直接抄 body.position 会丢掉插值，看起来一顿一顿的
+function renderPos(b){ return b.interpolatedPosition||b.position; }
+function renderQuat(b){ return b.interpolatedQuaternion||b.quaternion; }
 
 function step(dt){
-  // -- 驾驶 --
+  // -- 驾驶：全部用指数阻尼平滑，与帧率无关 --
   const {throttle,steer,brake}=readInput();
   const b=dozer.body;
   const MAXS=46;
   const target=brake?0:throttle*MAXS;
-  const accel=brake?90:(Math.abs(target)>Math.abs(dozer.speed)?55:70);
-  dozer.speed+=Math.sign(target-dozer.speed)*Math.min(Math.abs(target-dozer.speed),accel*dt);
+  const accel=brake?150:(Math.abs(target)>Math.abs(dozer.speed)?85:110);
+  // 速度混合：系数要够强才能顶开碎块，否则撞上东西就顶死不动；
+  // 起步推力给足，撞墙仍会经接触求解器减速，保留顿挫感
+  // 撞击缓冲：刚撞上东西的 0.12s 内用中等强度跟速度（dt*12），
+  // 让接触求解器先结算、又不至于完全松开导致车头栽进去；平时 dt*30 顶开碎块
+  step._hitCd=Math.max(0,(step._hitCd||0)-dt);
+  const k=step._hitCd>0?Math.min(1,dt*12):Math.min(1,dt*30);
+  const want=dozer.speed+Math.sign(target-dozer.speed)*Math.min(Math.abs(target-dozer.speed),accel*dt);
+  dozer.speed=want;
   if(throttle===0&&!brake) dozer.speed*=Math.max(0,1-0.25*dt);
   const spdAbs=Math.abs(dozer.speed);
   const wantFov=50+Math.min(14,spdAbs*.35);
-  if(Math.abs(camera.fov-wantFov)>.1){ camera.fov+=(wantFov-camera.fov)*Math.min(1,dt*4); camera.updateProjectionMatrix(); }
+  if(Math.abs(camera.fov-wantFov)>.02){ camera.fov+=(wantFov-camera.fov)*Math.min(1,dt*3); camera.updateProjectionMatrix(); }
   // 前方向（物理四元数）
   q.copy(b.quaternion);
   fwd.set(0,0,1).applyQuaternion(q); fwd.y=0;
   if(fwd.lengthSq()<.01) fwd.set(0,0,1); fwd.normalize();
-  b.velocity.x=fwd.x*dozer.speed; b.velocity.z=fwd.z*dozer.speed;
+  // 速度混合而不是硬赋值：保留物理求解器给的纵向速度，撞墙减速真实且不跳变
+  const vx=fwd.x*dozer.speed, vz=fwd.z*dozer.speed;
+  b.velocity.x+=(vx-b.velocity.x)*k; b.velocity.z+=(vz-b.velocity.z)*k;
   if(Math.abs(b.velocity.y)>30) b.velocity.y=Math.sign(b.velocity.y)*30;
-  // 转向：平滑后的转向角速度 + 侧倾车身，比直接改角速度顺滑得多；
-  // 坦克式：低速也能原地转向，高速转弯半径自动变大
-  steerSm+=(steer-steerSm)*Math.min(1,dt*7);
+  // 转向：双重平滑（输入阻尼 + 角速度阻尼），低速灵、高速稳；
+  // 用角速度转向，让 cannon 内部积分保持连续
+  steerSm+=(steer-steerSm)*Math.min(1,dt*6);
   const dirSign=dozer.speed<-1?-1:1;
-  const yawRate=steerSm*(1.1+Math.min(1.6,spdAbs*.09))*dirSign*(brake?0:1);
-  // 用四元数小步旋转代替直接设角速度：无跳变、不打架
-  if(Math.abs(yawRate)>.001){
-    const dq=new CANNON.Quaternion();
-    dq.setFromEuler(0,yawRate*dt,0);
-    b.quaternion=b.quaternion.mult(dq);
-    b.angularVelocity.set(b.angularVelocity.x*.5,0,b.angularVelocity.z*.5);
-  } else {
-    b.angularVelocity.set(b.angularVelocity.x*.5,0,b.angularVelocity.z*.5);
-  }
+  // 原地（松油门）也允许慢速转向：推土机就该能原地掉头；
+  // 高速时收敛，保证撞楼时车头可控
+  const grip=Math.min(1,.45+spdAbs/18);
+  const yawRate=steerSm*(1.1+Math.min(1.2,spdAbs*.03))*dirSign*(brake?0:grip);
+  // X/Z 翻滚分量手动压住（替代原来的高 angularDamping），Y 轴转向保留
+  b.angularVelocity.x*=.5; b.angularVelocity.z*=.5;
+  b.angularVelocity.y+=(yawRate-b.angularVelocity.y)*Math.min(1,dt*8);
+  // 直接转车身四元数（绕世界 Y 轴）：转向不再经过 cannon 角速度积分，
+  // 不会被 linearDamping/angularDamping 或接触方程吃掉，按多久转多久
+  _yawQ.setFromAxisAngle(_YAXIS,yawRate*dt);
+  _yawQ.mult(b.quaternion,b.quaternion);
   // 防翻：把上向量拉回 +Y
-  const up=new CANNON.Vec3(0,1,0); b.quaternion.vmult(up,up);
-  if(up.y<.55){
-    b.applyTorque(new CANNON.Vec3(up.z*2200,0,-up.x*2200));
+  _up.set(0,1,0); b.quaternion.vmult(_up,_up);
+  if(_up.y<.55){
+    b.applyTorque(new CANNON.Vec3(_up.z*2200,0,-_up.x*2200));
     if(!step._tipped){ step._tipped=true; toast('翻车了，按 R 扶正',2500); setTimeout(()=>step._tipped=false,3000); }
   }
   b.wakeUp();
@@ -773,16 +825,16 @@ function step(dt){
   }
   comboT=Math.max(0,comboT-dt); if(comboT===0&&comboN!==0){comboN=0;}
 
-  // -- 同步网格 --
-  dozer.group.position.copy(b.position); dozer.group.quaternion.copy(b.quaternion);
-  destructibles.forEach(d=>{ if(d.kind==='car'){ d.group.position.copy(d.body.position); d.group.quaternion.copy(d.body.quaternion);
+  // -- 同步网格（用插值后的位置/朝向，消除物理步长与渲染帧不同步的抖动） --
+  dozer.group.position.copy(renderPos(b)); dozer.group.quaternion.copy(renderQuat(b));
+  destructibles.forEach(d=>{ if(d.kind==='car'){ d.group.position.copy(renderPos(d.body)); d.group.quaternion.copy(renderQuat(d.body));
     const sp2=d.body.velocity.length();
     if(sp2>9&&!d._hit){ d._hit=true; setTimeout(()=>d._hit=false,600);
       if(sp2>13){ d.hp-=1; puff(d.body.position.x,2,d.body.position.z,10,6,7); clank(); shakeCam(.4);
         if(d.hp<=0&&!d.wrecked){ d.wrecked=true; demolish(d,sp2); } } }
   }});
-  debris.forEach(o=>{ o.mesh.position.copy(o.body.position); o.mesh.quaternion.copy(o.body.quaternion); });
-  fallings.forEach(f=>{ if(f.body){ f.mesh.position.copy(f.body.position); f.mesh.quaternion.copy(f.body.quaternion); } });
+  debris.forEach(o=>{ o.mesh.position.copy(renderPos(o.body)); o.mesh.quaternion.copy(renderQuat(o.body)); });
+  fallings.forEach(f=>{ if(f.body){ f.mesh.position.copy(renderPos(f.body)); f.mesh.quaternion.copy(renderQuat(f.body)); } });
   for(let i=floaters.length-1;i>=0;i--){ const f=floaters[i]; f.life-=dt;
     f.s.position.y+=dt*3; f.s.material.opacity=Math.min(1,f.life);
     if(f.life<=0){ scene.remove(f.s); floaters.splice(i,1); } }
@@ -796,16 +848,18 @@ function step(dt){
   dozer.wheels.forEach(w=>{ w.rotation.x+=roll*dt; });
   exhaustT-=dt;
   if((throttle!==0||spd>6)&&exhaustT<=0){ exhaustT=.09;
-    const tip=new THREE.Vector3(); dozer.exhaustTip.getWorldPosition(tip);
-    puff(tip.x,tip.y,tip.z,1,1,2.5); }
+    dozer.exhaustTip.getWorldPosition(tipTmp);
+    puff(tipTmp.x,tipTmp.y,tipTmp.z,1,1,2.5); }
   if(spd>10&&Math.random()<.5){ puff(b.position.x-fwd.x*2,.6,b.position.z-fwd.z*2,2,5,4); }
 
-  // -- 45°俯视跟随相机 + 震屏 --
-  camTarget.lerp(new THREE.Vector3(b.position.x,0,b.position.z).addScaledVector(fwd,4),1-Math.pow(.001,dt));
+  // -- 45°俯视跟随相机 + 震屏：目标点和位置都做阻尼，避免相机抽搐 --
+  camTmp.set(b.position.x,0,b.position.z).addScaledVector(fwd,4);
+  camTarget.lerp(camTmp,1-Math.pow(.0001,dt));
   camShake=Math.max(0,camShake-dt*8);
-  const sh=camShake>0?new THREE.Vector3((Math.random()-.5)*camShake*.5,(Math.random()-.5)*camShake*.2,(Math.random()-.5)*camShake*.5):new THREE.Vector3();
-  camera.position.copy(camTarget).add(CAM_OFF).add(sh);
-  camera.lookAt(camTarget.x+sh.x,0,camTarget.z+sh.z);
+  if(camShake>0){ camSh.set((Math.random()-.5)*camShake*.5,(Math.random()-.5)*camShake*.2,(Math.random()-.5)*camShake*.5); }
+  else camSh.set(0,0,0);
+  camera.position.copy(camTarget).add(CAM_OFF).add(camSh);
+  camera.lookAt(camTarget.x+camSh.x,0,camTarget.z+camSh.z);
   sun.position.set(camTarget.x+40,70,camTarget.z+20);
   sun.target.position.set(camTarget.x,0,camTarget.z); sun.target.updateMatrixWorld();
 }
