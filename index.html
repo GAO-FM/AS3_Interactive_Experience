@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-<title>推土机拆迁现场</title>
+<title>Bulldozer Demolition</title>
 <style>
   :root{ --bg:#14161a; --panel:#1d2026; --ink:#f2f2f0; --dim:#a8adb5; --accent:#ffb400; --line:#33373f; }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
@@ -44,8 +44,12 @@
   /* 子弹时间：上下黑边 + 四周暗角，出现即慢放， industrial 风格不加花字 */
   #bulletFx{position:absolute; inset:0; z-index:4; pointer-events:none; opacity:0; transition:opacity .3s;
     background:
-      linear-gradient(to bottom, rgba(0,0,0,.6) 0, rgba(0,0,0,.6) 7%, transparent 7.1%, transparent 92.9%, rgba(0,0,0,.6) 93%),
+      linear-gradient(to bottom, rgba(20,26,34,.75) 0, rgba(20,26,34,.75) 7%, transparent 7.1%, transparent 92.9%, rgba(20,26,34,.75) 93%),
       radial-gradient(ellipse at center, transparent 52%, rgba(8,10,14,.6) 100%);}
+  #bulletFx::after{content:''; position:absolute; inset:0;
+    background:repeating-conic-gradient(from 0deg at 50% 50%, rgba(255,255,255,.06) 0 2deg, transparent 2deg 7deg);
+    -webkit-mask-image:radial-gradient(circle at 50% 50%, transparent 42%, #000 43%);
+    mask-image:radial-gradient(circle at 50% 50%, transparent 42%, #000 43%);}
   #app.bullet #bulletFx{opacity:1;}
 </style>
 <script type="importmap">
@@ -65,17 +69,17 @@
   </div>
   <div id="speedo"><b id="spd">0</b><label>KM/H</label></div>
   <div id="toast"></div>
-  <div id="hint">WASD 开车 · Space 刹车 · R 扶正 · N 重建</div>
+  <div id="hint">WASD drive · Space brake · R reset · N rebuild</div>
   <div id="btns">
-    <button id="btnReset">扶正</button>
-    <button id="btnCity">重建</button>
-    <button id="btnSound">声音开</button>
+    <button id="btnReset">RESET</button>
+    <button id="btnCity">REBUILD</button>
+    <button id="btnSound">SOUND ON</button>
   </div>
   <div id="touch">
     <div class="cluster"><button data-k="a">&#9664;</button><button data-k="d">&#9654;</button></div>
     <div class="cluster"><button data-k="s">&#9660;</button><button data-k="w">&#9650;</button></div>
   </div>
-  <div id="loading"><div class="spin"></div><div>正在加载…</div></div>
+  <div id="loading"><div class="spin"></div><div>LOADING…</div></div>
 </div>
 
 <script type="module">
@@ -122,32 +126,39 @@ function engineUpdate(speed, throttle){ if(!engOsc) return;
   engOsc.frequency.setTargetAtTime(40+Math.abs(speed)*3.2+(throttle!==0?14:0), t, .1);
   engGain.gain.setTargetAtTime(soundOn?0.05+Math.min(.06,Math.abs(speed)*.002):0.0, t, .15); }
 
-/* ================= 渲染器 / 场景 ================= */
+/* ================= 渲染器 / 场景（Toon 风格化） ================= */
 const container=$('game');
 const renderer=new THREE.WebGLRenderer({antialias:true,preserveDrawingBuffer:true});
 renderer.setPixelRatio(Math.min(devicePixelRatio,2));
 renderer.setSize(innerWidth,innerHeight);
-renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap;
-renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.toneMappingExposure=1.05;
+renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFShadowMap;
+renderer.toneMapping=THREE.NoToneMapping;
 container.appendChild(renderer.domElement);
 
 const scene=new THREE.Scene();
-scene.background=new THREE.Color(0x14161a);
-scene.fog=new THREE.Fog(0x14161a, 90, 230);
+scene.background=new THREE.Color(0x8ec9e8);
+scene.fog=new THREE.Fog(0x8ec9e8, 110, 260);
+
+// Toon 阶梯光照：全局复用一张 4 阶 gradientMap
+const _toonSteps=new Uint8Array([110,170,220,255]);
+const _gradMap=new THREE.DataTexture(_toonSteps,4,1,THREE.RedFormat);
+_gradMap.minFilter=THREE.NearestFilter; _gradMap.magFilter=THREE.NearestFilter;
+_gradMap.needsUpdate=true;
+function toon(hex,opts={}){ return new THREE.MeshToonMaterial(Object.assign({color:hex,gradientMap:_gradMap},opts)); }
 
 const camera=new THREE.PerspectiveCamera(50, innerWidth/innerHeight, .1, 600);
 // 45°俯视角：高度 ≈ 水平距离
 const CAM_OFF=new THREE.Vector3(0,34,34);
 
-const hemi=new THREE.HemisphereLight(0xbcd3ff,0x3a2f22,.75); scene.add(hemi);
-const sun=new THREE.DirectionalLight(0xfff1d6,1.9);
+const hemi=new THREE.HemisphereLight(0xcfe8ff,0xffd9a0,1.0); scene.add(hemi);
+const sun=new THREE.DirectionalLight(0xfff0c0,2.2);
 sun.position.set(40,70,20); sun.castShadow=true;
 sun.shadow.mapSize.set(2048,2048);
 sun.shadow.camera.left=-80; sun.shadow.camera.right=80;
 sun.shadow.camera.top=80; sun.shadow.camera.bottom=-80;
-sun.shadow.camera.far=220; sun.shadow.bias=-0.0004;
+sun.shadow.camera.far=220; sun.shadow.bias=-0.0006; sun.shadow.normalBias=.5;
 scene.add(sun);
-scene.add(new THREE.AmbientLight(0x223349,.5));
+scene.add(new THREE.AmbientLight(0xffffff,.35));
 
 /* ================= 物理世界 ================= */
 const world=new CANNON.World({gravity:new CANNON.Vec3(0,-22,0)});
@@ -178,27 +189,29 @@ const ARENA=92; // 半径
   mk(-ARENA-2,0,4,ARENA*2+20); mk(ARENA+2,0,4,ARENA*2+20);
 })();
 
-/* ---- 地面纹理：草地 + 街区道路 ---- */
+/* ---- 地面纹理：卡通沙盘风 ---- */
 function groundTexture(){
   const c=document.createElement('canvas'); c.width=c.height=1024;
   const g=c.getContext('2d');
-  g.fillStyle='#3d5a34'; g.fillRect(0,0,1024,1024);
-  for(let i=0;i<9000;i++){ g.fillStyle=`rgba(${40+Math.random()*40|0},${90+Math.random()*50|0},${40+Math.random()*30|0},.5)`;
+  g.fillStyle='#69b455'; g.fillRect(0,0,1024,1024);
+  for(let i=0;i<2600;i++){ g.fillStyle=`rgba(50,140,60,${.25+Math.random()*.3})`;
+    const s=3+Math.random()*5; g.fillRect(Math.random()*1024,Math.random()*1024,s,s*.6); }
+  for(let i=0;i<500;i++){ g.fillStyle='rgba(255,255,255,.28)';
     g.fillRect(Math.random()*1024,Math.random()*1024,2,2); }
-  g.fillStyle='#2c2f36'; // 横竖主干道
-  g.fillRect(0,472,1024,80); g.fillRect(472,0,80,1024);
-  g.fillStyle='#3a3e46'; g.fillRect(0,200,1024,44); g.fillRect(200,0,44,1024); g.fillRect(0,780,1024,44); g.fillRect(780,0,44,1024);
-  g.strokeStyle='#e8d44f'; g.lineWidth=4; g.setLineDash([26,20]);
-  g.beginPath(); g.moveTo(0,512); g.lineTo(1024,512); g.moveTo(512,0); g.lineTo(512,1024); g.stroke();
-  g.setLineDash([]); g.strokeStyle='rgba(255,255,255,.5)'; g.lineWidth=2;
-  for(const y of [200,780]){ g.beginPath(); g.moveTo(0,y+22); g.lineTo(1024,y+22); g.stroke(); }
-  for(const x of [200,780]){ g.beginPath(); g.moveTo(x+22,0); g.lineTo(x+22,1024); g.stroke(); }
+  const road=(x,y,w,h)=>{ g.fillStyle='#4d5461'; g.fillRect(x,y,w,h);
+    g.strokeStyle='#23262b'; g.lineWidth=6; g.strokeRect(x+3,y+3,w-6,h-6);
+    g.strokeStyle='#f4f6f8'; g.lineWidth=3; g.setLineDash([30,24]);
+    if(w>h){ g.beginPath(); g.moveTo(x+6,y+h/2); g.lineTo(x+w-6,y+h/2); g.stroke(); }
+    else { g.beginPath(); g.moveTo(x+w/2,y+6); g.lineTo(x+w/2,y+h-6); g.stroke(); }
+    g.setLineDash([]); };
+  road(0,472,1024,80); road(472,0,80,1024);
+  road(0,200,1024,44); road(200,0,44,1024); road(0,780,1024,44); road(780,0,44,1024);
   const t=new THREE.CanvasTexture(c); t.colorSpace=THREE.SRGBColorSpace;
   t.anisotropy=4; return t;
 }
 {
   const gm=new THREE.Mesh(new THREE.PlaneGeometry(ARENA*2+30,ARENA*2+30),
-    new THREE.MeshStandardMaterial({map:groundTexture(),roughness:.95,metalness:0}));
+    new THREE.MeshToonMaterial({map:groundTexture(),gradientMap:_gradMap}));
   gm.rotation.x=-Math.PI/2; gm.receiveShadow=true; scene.add(gm);
 }
 
@@ -213,7 +226,7 @@ function updateHUD(){
   scoreEl.textContent=score;
   let left=0; destructibles.forEach(d=>{ if(d.kind==='building') left++; });
   leftEl.textContent=left;
-  if(left===0&&!won){ won=true; crashBig(); toast('整座城被推平了，按 N 重建',4000); }
+  if(left===0&&!won){ won=true; crashBig(); toast('CITY FLATTENED — press N to rebuild',4000); }
 }
 function addScore(n,x,z,label){
   score+=n; floatText('+'+n+(label||''),x,z);
@@ -240,9 +253,12 @@ dustPos.fill(-999);
 const dustGeo=new THREE.BufferGeometry();
 dustGeo.setAttribute('position',new THREE.BufferAttribute(dustPos,3));
 function dustTexture(){ const c=document.createElement('canvas'); c.width=c.height=64;
-  const g=c.getContext('2d'); const gr=g.createRadialGradient(32,32,2,32,32,30);
-  gr.addColorStop(0,'rgba(220,210,195,.85)'); gr.addColorStop(1,'rgba(220,210,195,0)');
-  g.fillStyle=gr; g.fillRect(0,0,64,64); return new THREE.CanvasTexture(c); }
+  const g=c.getContext('2d');
+  g.fillStyle='rgba(255,250,235,.95)';
+  g.beginPath(); g.arc(32,32,26,0,Math.PI*2); g.fill(); // 卡通硬边圆
+  g.fillStyle='rgba(255,250,235,.9)';
+  g.beginPath(); g.arc(22,22,8,0,Math.PI*2); g.fill(); // 高光点
+  return new THREE.CanvasTexture(c); }
 const dustPts=new THREE.Points(dustGeo,new THREE.PointsMaterial({size:2.6,map:dustTexture(),
   transparent:true,opacity:.75,depthWrite:false}));
 dustPts.frustumCulled=false; scene.add(dustPts);
@@ -261,21 +277,80 @@ function updateDust(dt){
   dustGeo.attributes.position.needsUpdate=true;
 }
 
-/* ================= 建材 ================= */
+/* ================= 建材（Toon 风格化） ================= */
+const _texCache=new Map();
+function canvasTex(key,draw,w=256,h=256){
+  if(_texCache.has(key)) return _texCache.get(key);
+  const c=document.createElement('canvas'); c.width=w; c.height=h;
+  draw(c.getContext('2d'),w,h);
+  const t=new THREE.CanvasTexture(c); t.colorSpace=THREE.SRGBColorSpace; t.anisotropy=4;
+  _texCache.set(key,t); return t;
+}
+function brickTexture(base='#e0705a'){ return canvasTex('brick:'+base,(g,w,h)=>{
+  g.fillStyle=base; g.fillRect(0,0,w,h);
+  const bh=h/8, bw=w/4;
+  for(let r=0;r<8;r++){ const off=(r%2)*bw/2;
+    for(let cx=-1;cx<5;cx++){ const x=cx*bw+off, y=r*bh;
+      const l=Math.random()*14-7;
+      g.fillStyle=`rgba(${l>0?255:0},${l>0?255:0},${l>0?255:0},${Math.abs(l)/100})`;
+      g.fillRect(x+2,y+2,bw-4,bh-4); }
+    g.fillStyle='rgba(60,20,15,.55)'; g.fillRect(0,r*bh,w,3); }
+  g.fillStyle='rgba(60,20,15,.4)';
+  for(let cx=0;cx<5;cx++) g.fillRect(cx*bw,0,2,h);
+});}
+function concreteTexture(base='#cfd6e2'){ return canvasTex('concrete:'+base,(g,w,h)=>{
+  g.fillStyle=base; g.fillRect(0,0,w,h);
+  for(let i=0;i<900;i++){ g.fillStyle=`rgba(90,100,120,${Math.random()*.16})`;
+    g.fillRect(Math.random()*w,Math.random()*h,2,2); }
+  g.fillStyle='rgba(90,100,120,.25)';
+  for(let i=0;i<4;i++) g.fillRect(0,Math.random()*h,w,3);
+});}
+function hazardTexture(){ return canvasTex('hazard',(g,w,h)=>{
+  g.fillStyle='#ffc21c'; g.fillRect(0,0,w,h);
+  g.fillStyle='#23262b';
+  for(let i=-2;i<8;i++){ g.save(); g.translate(i*40,0); g.rotate(Math.PI/4);
+    g.fillRect(0,-h,20,h*3); g.restore(); }
+  g.fillStyle='rgba(255,255,255,.25)'; g.fillRect(0,0,w,10);
+});}
+function windowsTexture(lit=.45,base='#33465e'){ return canvasTex('win:'+lit+base,(g,w,h)=>{
+  g.fillStyle=base; g.fillRect(0,0,w,h);
+  const cols=4, rows=6, cw=w/cols, ch=h/rows;
+  for(let r=0;r<rows;r++) for(let c=0;c<cols;c++){
+    const on=Math.random()<lit;
+    g.fillStyle=on?'#ffe9a3':'#1d2b3d';
+    g.fillRect(c*cw+4,r*ch+5,cw-8,ch-10);
+    g.fillStyle=on?'rgba(255,255,255,.55)':'rgba(255,255,255,.14)';
+    g.fillRect(c*cw+4,r*ch+5,cw-8,5);
+  }
+  g.strokeStyle='rgba(20,26,34,.9)'; g.lineWidth=3;
+  for(let c=0;c<=cols;c++){ g.beginPath(); g.moveTo(c*cw,0); g.lineTo(c*cw,h); g.stroke(); }
+  for(let r=0;r<=rows;r++){ g.beginPath(); g.moveTo(0,r*ch); g.lineTo(w,r*ch); g.stroke(); }
+});}
+// 反向外壳描边：给 mesh 加一个 BackSide 放大副本；thin 档给薄板用防 z-fighting
+const _outlineMat=new THREE.MeshBasicMaterial({color:0x23262b,side:THREE.BackSide});
+function addOutline(mesh,ratio=.035,min=.05){
+  const s=new THREE.Mesh(mesh.geometry,_outlineMat);
+  const d=new THREE.Vector3(); mesh.geometry.computeBoundingBox();
+  mesh.geometry.boundingBox.getSize(d);
+  const t=Math.max(min,d.length()*ratio);
+  s.scale.setScalar(1+t/Math.max(.001,Math.max(d.x,d.y,d.z)));
+  s.raycast=()=>{}; mesh.add(s); return s;
+}
 const M={
-  wall:new THREE.MeshStandardMaterial({color:0xd8cfc0,roughness:.9}),
-  brick:new THREE.MeshStandardMaterial({color:0xb6654e,roughness:.9}),
-  concrete:new THREE.MeshStandardMaterial({color:0x9aa3b2,roughness:.95}),
-  glass:new THREE.MeshStandardMaterial({color:0x9fd8e8,roughness:.15,metalness:.35,emissive:0x2a4a5a,emissiveIntensity:.35}),
-  roof:new THREE.MeshStandardMaterial({color:0x39414f,roughness:.9}),
-  wood:new THREE.MeshStandardMaterial({color:0x9a6b3f,roughness:.9}),
-  yellow:new THREE.MeshStandardMaterial({color:0xf2b705,roughness:.5,metalness:.25}),
-  darkMetal:new THREE.MeshStandardMaterial({color:0x2b2f36,roughness:.6,metalness:.6}),
-  track:new THREE.MeshStandardMaterial({color:0x1c1e22,roughness:.95}),
-  cabinGlass:new THREE.MeshStandardMaterial({color:0x8fd4ef,roughness:.1,metalness:.4,emissive:0x1c3a4a,emissiveIntensity:.5}),
-  trunk:new THREE.MeshStandardMaterial({color:0x6b4a2c,roughness:1}),
-  leaf:new THREE.MeshStandardMaterial({color:0x4c8a3f,roughness:1}),
-  tire:new THREE.MeshStandardMaterial({color:0x17181c,roughness:.95}),
+  wall:new THREE.MeshToonMaterial({color:0xf3e5cf,gradientMap:_gradMap}),
+  brick:new THREE.MeshToonMaterial({color:0xffffff,gradientMap:_gradMap,map:brickTexture('#e0705a')}),
+  concrete:new THREE.MeshToonMaterial({color:0xffffff,gradientMap:_gradMap,map:concreteTexture()}),
+  glass:new THREE.MeshToonMaterial({color:0x7fd4f2,gradientMap:_gradMap}),
+  roof:new THREE.MeshToonMaterial({color:0x4a5568,gradientMap:_gradMap}),
+  wood:new THREE.MeshToonMaterial({color:0xc98f4e,gradientMap:_gradMap}),
+  yellow:new THREE.MeshToonMaterial({color:0xffc21c,gradientMap:_gradMap}),
+  darkMetal:new THREE.MeshToonMaterial({color:0x333943,gradientMap:_gradMap}),
+  track:new THREE.MeshToonMaterial({color:0x23262b,gradientMap:_gradMap}),
+  cabinGlass:new THREE.MeshToonMaterial({color:0x9fe4ff,gradientMap:_gradMap}),
+  trunk:new THREE.MeshToonMaterial({color:0x8a5a33,gradientMap:_gradMap}),
+  leaf:new THREE.MeshToonMaterial({color:0x58b34a,gradientMap:_gradMap}),
+  leaf2:new THREE.MeshToonMaterial({color:0x3f9440,gradientMap:_gradMap}),
+  tire:new THREE.MeshToonMaterial({color:0x1e2126,gradientMap:_gradMap}),
 };
 function box(w,h,d,mat,x=0,y=0,z=0,shadow=true){
   const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat);
@@ -288,42 +363,48 @@ function addStaticBox(group,cx,cy,cz,w,h,d){
   world.addBody(body); return body;
 }
 
-/* ---- 高精度楼房 ---- */
+/* ---- Toon风楼房：贴图墙面 + 女儿墙 + 屋顶水箱 + 空调机 ---- */
 function makeBuilding(cx,cz,w,h,d,style){
   const g=new THREE.Group(); g.position.set(cx,0,cz);
-  const baseMat = style==='brick'?M.brick : style==='glass'?M.glass : style==='concrete'?M.concrete : M.wall;
-  const base=box(w,h,d,baseMat,0,h/2,0); base.name='base'; g.add(base);
-  const winMat=new THREE.MeshStandardMaterial({color:0x1d2b3d,roughness:.3,metalness:.3,emissive:0xffdf8a,emissiveIntensity:style==='glass'?.55:.22});
-  const frameMat=new THREE.MeshStandardMaterial({color:0xe8e4da,roughness:.8});
-  const floors=Math.max(2,Math.floor(h/3.2)), cols=Math.max(2,Math.floor(w/2.6));
-  const winGeo=new THREE.BoxGeometry(1.1,1.3,.12);
-  for(let f=0;f<floors;f++) for(let cI=0;cI<cols;cI++){
-    const wx=-w/2+ (cI+.5)*(w/cols), wy=2+f*((h-3)/floors);
-    for(const s of [1,-1]){
-      const win=new THREE.Mesh(winGeo, (f+cI)%4===0?frameMat:winMat);
-      win.position.set(wx,wy,s*(d/2+.04)); g.add(win);
-    }
-  }
-  const colsD=Math.max(2,Math.floor(d/2.6));
-  for(let f=0;f<floors;f++) for(let cI=0;cI<colsD;cI++){
-    const wz=-d/2+(cI+.5)*(d/colsD), wy=2+f*((h-3)/floors);
-    for(const s of [1,-1]){
-      const win=new THREE.Mesh(winGeo,(f*2+cI)%5===0?frameMat:winMat);
-      win.rotation.y=Math.PI/2; win.position.set(s*(w/2+.04),wy,wz); g.add(win);
-    }
-  }
-  g.add(box(w*.7,2.2,.3,frameMat,0,1.1,d/2+.08));
-  g.add(box(2.2,2,.4,M.darkMetal,0,1,d/2+.1));
-  g.add(box(w+.4,.7,d+.4,M.roof,0,h+.3,0));
-  g.add(box(1.8,1.2,1.8,M.concrete, w/4,h+1.1,-d/5));
-  const tankMat=new THREE.MeshStandardMaterial({color:0x7a5230,roughness:.8});
-  const tank=new THREE.Mesh(new THREE.CylinderGeometry(1,1,1.8,14),tankMat);
-  tank.position.set(-w/4,h+1.4,d/5); tank.castShadow=true; g.add(tank);
+  const pal = style==='brick'
+    ? {wall:0xffffff,win:.4,base:'#e0705a'}
+    : style==='glass'
+    ? {wall:0x8fd8f5,win:.62,base:null}
+    : {wall:0xffffff,win:.45,base:'#cfd6e2'};
+  const wallMat = style==='brick' ? new THREE.MeshToonMaterial({color:0xffffff,gradientMap:_gradMap,map:brickTexture(pal.base)})
+    : style==='concrete' ? new THREE.MeshToonMaterial({color:0xffffff,gradientMap:_gradMap,map:concreteTexture('#cfd6e2')})
+    : style==='glass' ? new THREE.MeshToonMaterial({color:pal.wall,gradientMap:_gradMap})
+    : M.wall;
+  const base=box(w,h,d,wallMat,0,h/2,0); base.name='base'; g.add(base);
+  // 窗户：整面贴图代替逐窗mesh，大楼 DrawCall 从上百降到个位数
+  const winMat=new THREE.MeshToonMaterial({gradientMap:_gradMap,map:windowsTexture(pal.win)});
+  const winF=new THREE.Mesh(new THREE.PlaneGeometry(w*.96,h*.86),winMat);
+  winF.position.set(0,h*.5,d/2+.03); g.add(winF);
+  const winB=winF.clone(); winB.rotation.y=Math.PI; winB.position.set(0,h*.5,-d/2-.03); g.add(winB);
+  const winL=new THREE.Mesh(new THREE.PlaneGeometry(d*.96,h*.86),winMat);
+  winL.rotation.y=-Math.PI/2; winL.position.set(-w/2-.03,h*.5,0); g.add(winL);
+  const winR=winL.clone(); winR.rotation.y=Math.PI/2; winR.position.set(w/2+.03,h*.5,0); g.add(winR);
+  // 底部大门 + 雨棚 + 门柱
+  g.add(box(Math.min(3.4,w*.5),2.3,.3,M.darkMetal,0,1.15,d/2+.1));
+  const awn=box(Math.min(4.4,w*.6),.25,1.4,new THREE.MeshToonMaterial({color:0xff5a5a,gradientMap:_gradMap}),0,2.6,d/2+.7); g.add(awn);
+  g.add(box(.25,2.5,.25,M.darkMetal,-Math.min(2,w*.28),1.25,d/2+1.2));
+  g.add(box(.25,2.5,.25,M.darkMetal,Math.min(2,w*.28),1.25,d/2+1.2));
+  // 女儿墙描边 + 屋顶水箱（描边）+ 空调外机
+  const parapet=box(w+.4,.9,d+.4,M.roof,0,h+.4,0); addOutline(parapet,.02,.06); g.add(parapet);
+  g.add(box(w*.92,.25,d*.92,M.concrete,0,h+.02,0));
+  const tank=new THREE.Mesh(new THREE.CylinderGeometry(1.05,1.05,1.9,12),M.wood);
+  tank.position.set(-w/4,h+1.6,d/5); tank.castShadow=true; addOutline(tank); g.add(tank);
+  const tankTop=new THREE.Mesh(new THREE.ConeGeometry(1.2,.8,12),M.roof);
+  tankTop.position.set(-w/4,h+2.9,d/5); tankTop.castShadow=true; g.add(tankTop);
+  for(let li=0;li<3;li++) g.add(box(.12,1.6,.12,M.darkMetal,-w/4+1.25,h+1.3,d/5-.4+li*.4));
+  for(let ai=0;ai<2;ai++){ const ax=w/4+(ai-.5)*2.4;
+    g.add(box(1.1,.8,.6,M.concrete,ax,h+.9,-d/5));
+    g.add(box(.9,.12,.06,M.darkMetal,ax,h+.9,-d/5+.32)); }
   scene.add(g);
   const body=addStaticBox(g,cx,h/2,cz,w,h,d);
   const hp=Math.round(2+h/5);
   destructibles.set(body.id,{body,group:g,hp,maxHp:hp,score:120+Math.round(w*h*d/22),kind:'building',
-    size:{w,h,d},color:baseMat.color.clone(),state:'stand',fallTimer:0});
+    size:{w,h,d},color:new THREE.Color(style==='brick'?0xe0705a:style==='glass'?0x8fd8f5:0xcfd6e2),state:'stand',fallTimer:0});
   return body;
 }
 function makeWallRun(x1,z1,x2,z2){
@@ -331,53 +412,80 @@ function makeWallRun(x1,z1,x2,z2){
   for(let i=0;i<n;i++){ const t=(i+.5)/n, cx=x1+(x2-x1)*t, cz=z1+(z2-z1)*t;
     const g=new THREE.Group(); g.position.set(cx,0,cz);
     g.rotation.y=Math.atan2(x2-x1,z2-z1)+Math.PI/2;
-    g.add(box(4,2.2,.6,M.brick,0,1.1,0));
-    g.add(box(4.3,.3,.8,M.concrete,0,2.3,0));
+    const wb=box(4,2.2,.6,M.brick,0,1.1,0); addOutline(wb,.015,.04); g.add(wb);
+    const cap=box(4.4,.35,.9,M.concrete,0,2.35,0); addOutline(cap,.015,.04); g.add(cap);
+    g.add(box(.5,2.6,.8,M.concrete,0,1.3,0)); // 卡通砖柱
     scene.add(g);
     const body=addStaticBox(g,cx,1.1,cz,4,2.2,.6);
-    destructibles.set(body.id,{body,group:g,hp:1,maxHp:1,score:40,kind:'wall',size:{w:4,h:2.2,d:.6},color:new THREE.Color(0xb6654e),state:'stand',fallTimer:0});
+    destructibles.set(body.id,{body,group:g,hp:1,maxHp:1,score:40,kind:'wall',size:{w:4,h:2.2,d:.6},color:new THREE.Color(0xe0705a),state:'stand',fallTimer:0});
   }
 }
 function makeCrate(cx,cz,s=1.6){
   const g=new THREE.Group(); g.position.set(cx,0,cz); g.rotation.y=Math.random()*1;
-  g.add(box(s,s,s,M.wood,0,s/2,0));
-  g.add(box(s+.1,.18,s+.1,M.darkMetal,0,s-.1,0));
+  const c=box(s,s,s,M.wood,0,s/2,0); addOutline(c); g.add(c);
+  // 卡通木框 + 喷漆箭头
+  const fT=.16;
+  g.add(box(s+.06,fT,fT,M.trunk,0,s-.12,s/2)); g.add(box(s+.06,fT,fT,M.trunk,0,s-.12,-s/2));
+  g.add(box(s+.06,fT,fT,M.trunk,0,.12,s/2)); g.add(box(s+.06,fT,fT,M.trunk,0,.12,-s/2));
+  g.add(box(fT,s,fT,M.trunk,s/2,s/2,s/2)); g.add(box(fT,s,fT,M.trunk,-s/2,s/2,s/2));
+  g.add(box(fT,s,fT,M.trunk,s/2,s/2,-s/2)); g.add(box(fT,s,fT,M.trunk,-s/2,s/2,-s/2));
+  g.add(box(s*.5,.3,.06,new THREE.MeshToonMaterial({color:0xfff2c8,gradientMap:_gradMap}),0,s/2,s/2+.04));
+  g.add(box(.5,.14,.12,M.darkMetal,0,s-.1,0));
   scene.add(g);
   const body=addStaticBox(g,cx,s/2,cz,s,s,s);
-  destructibles.set(body.id,{body,group:g,hp:1,maxHp:1,score:25,kind:'crate',size:{w:s,h:s,d:s},color:new THREE.Color(0x9a6b3f),state:'stand'});
+  destructibles.set(body.id,{body,group:g,hp:1,maxHp:1,score:25,kind:'crate',size:{w:s,h:s,d:s},color:new THREE.Color(0xc98f4e),state:'stand'});
 }
 function makeTree(cx,cz){
   const g=new THREE.Group(); g.position.set(cx,0,cz);
-  const trunk=new THREE.Mesh(new THREE.CylinderGeometry(.35,.5,3,8),M.trunk);
+  const trunk=new THREE.Mesh(new THREE.CylinderGeometry(.32,.5,3,7),M.trunk);
   trunk.position.y=1.5; trunk.castShadow=true; g.add(trunk);
-  const c1=new THREE.Mesh(new THREE.ConeGeometry(2.4,3.4,10),M.leaf); c1.position.y=4.2; c1.castShadow=true; g.add(c1);
-  const c2=new THREE.Mesh(new THREE.ConeGeometry(1.7,2.6,10),M.leaf); c2.position.y=6; c2.castShadow=true; g.add(c2);
+  const flare=new THREE.Mesh(new THREE.CylinderGeometry(.62,.8,.6,7),M.trunk);
+  flare.position.y=.3; flare.castShadow=true; g.add(flare);
+  // 卡通树冠：3 个低多边形 blob，flatShading + 高低明度 + 描边
+  const blobs=[[0,4.4,0,2.5,M.leaf],[1.4,3.8,.6,1.6,M.leaf2],[-1.3,3.9,-.5,1.7,M.leaf2],[.2,5.6,-.2,1.5,M.leaf]];
+  for(const [bx,by,bz,br,bm] of blobs){
+    const m=new THREE.Mesh(new THREE.IcosahedronGeometry(br,0),bm.clone());
+    m.material.flatShading=true; m.position.set(bx,by,bz);
+    m.rotation.set(Math.random()*3,Math.random()*3,0);
+    m.castShadow=true; addOutline(m,.03,.07); g.add(m);
+  }
   scene.add(g);
   const body=addStaticBox(g,cx,2,cz,1,4,1);
-  destructibles.set(body.id,{body,group:g,hp:1,maxHp:1,score:20,kind:'tree',size:{w:1.5,h:5,d:1.5},color:new THREE.Color(0x4c8a3f),state:'stand'});
+  destructibles.set(body.id,{body,group:g,hp:1,maxHp:1,score:20,kind:'tree',size:{w:1.5,h:5,d:1.5},color:new THREE.Color(0x58b34a),state:'stand'});
 }
 function makeLamp(cx,cz){
   const g=new THREE.Group(); g.position.set(cx,0,cz);
-  const pole=new THREE.Mesh(new THREE.CylinderGeometry(.16,.22,7,10),M.darkMetal);
-  pole.position.y=3.5; pole.castShadow=true; g.add(pole);
-  g.add(box(1.6,.3,.5,M.darkMetal,.6,6.9,0));
-  const bulbMat=new THREE.MeshStandardMaterial({color:0xfff2c0,emissive:0xffd54a,emissiveIntensity:1.6});
-  const bulb=new THREE.Mesh(new THREE.SphereGeometry(.28,10,10),bulbMat); bulb.position.set(1.2,6.7,0); g.add(bulb);
+  g.add(box(.9,.3,.9,M.concrete,0,.15,0)); // 底座
+  const pole=new THREE.Mesh(new THREE.CylinderGeometry(.16,.24,6.6,8),M.darkMetal);
+  pole.position.y=3.6; pole.castShadow=true; addOutline(pole,.02,.04); g.add(pole);
+  const arm=box(1.9,.28,.4,M.darkMetal,.75,6.75,0); addOutline(arm,.02,.04); g.add(arm);
+  const shade=new THREE.Mesh(new THREE.ConeGeometry(.55,.6,10),new THREE.MeshToonMaterial({color:0xff5a5a,gradientMap:_gradMap}));
+  shade.position.set(1.55,6.5,0); shade.castShadow=true; addOutline(shade); g.add(shade);
+  const bulb=new THREE.Mesh(new THREE.SphereGeometry(.26,10,10),new THREE.MeshBasicMaterial({color:0xffe9a3}));
+  bulb.position.set(1.55,6.25,0); g.add(bulb);
   scene.add(g);
   const body=addStaticBox(g,cx,3,cz,.7,7,.7);
-  destructibles.set(body.id,{body,group:g,hp:1,maxHp:1,score:30,kind:'lamp',size:{w:.7,h:7,d:.7},color:new THREE.Color(0x2b2f36),state:'stand'});
+  destructibles.set(body.id,{body,group:g,hp:1,maxHp:1,score:30,kind:'lamp',size:{w:.7,h:7,d:.7},color:new THREE.Color(0x333943),state:'stand'});
 }
 function makeCar(cx,cz,color=0xc0392b){
   const g=new THREE.Group();
-  const paint=new THREE.MeshStandardMaterial({color,roughness:.35,metalness:.5});
-  g.add(box(2,0.9,4.4,paint,0,.95,0));
-  g.add(box(1.7,.75,2.2,M.cabinGlass,0,1.7,-.2));
+  const paint=new THREE.MeshToonMaterial({color,gradientMap:_gradMap});
+  const body1=box(2,.85,4.4,paint,0,.95,0); addOutline(body1,.02,.05); g.add(body1);
+  const cab=box(1.7,.72,2.1,M.cabinGlass,0,1.7,-.2); addOutline(cab,.02,.05); g.add(cab);
+  const roofC=box(1.75,.14,2.15,paint,0,2.1,-.2); g.add(roofC); // 卡通车顶
+  g.add(box(2.05,.3,.5,paint,0,.8,2.05)); // 保险杠
+  g.add(box(2.05,.3,.5,paint,0,.8,-2.05));
   for(const [sx,sz] of [[-1,1.4],[1,1.4],[-1,-1.4],[1,-1.4]]){
-    const wh=new THREE.Mesh(new THREE.CylinderGeometry(.45,.45,.4,14),M.tire);
-    wh.rotation.z=Math.PI/2; wh.position.set(sx*1.05,.45,sz); wh.castShadow=true; g.add(wh);
+    const wh=new THREE.Mesh(new THREE.CylinderGeometry(.48,.48,.42,12),M.tire);
+    wh.rotation.z=Math.PI/2; wh.position.set(sx*1.05,.48,sz); wh.castShadow=true; addOutline(wh,.02,.04); g.add(wh);
+    const hub=new THREE.Mesh(new THREE.CylinderGeometry(.2,.2,.46,10),new THREE.MeshToonMaterial({color:0xf4f6f8,gradientMap:_gradMap}));
+    hub.rotation.z=Math.PI/2; hub.position.set(sx*1.05,.48,sz); g.add(hub);
   }
-  const hl=new THREE.MeshStandardMaterial({color:0xfff6c8,emissive:0xffedb0,emissiveIntensity:1.2});
-  g.add(box(.4,.25,.1,hl,-.6,.95,2.25)); g.add(box(.4,.25,.1,hl,.6,.95,2.25));
+  const hl=new THREE.MeshBasicMaterial({color:0xfff3c0});
+  const hlL=box(.42,.26,.12,hl,-.6,.95,2.25,false), hlR=box(.42,.26,.12,hl,.6,.95,2.25,false);
+  addOutline(hlL,.02,.03); addOutline(hlR,.02,.03); g.add(hlL,hlR);
+  const tl=new THREE.MeshBasicMaterial({color:0xff3b30});
+  g.add(box(.42,.26,.12,tl,-.6,.95,-2.25,false)); g.add(box(.42,.26,.12,tl,.6,.95,-2.25,false));
   scene.add(g);
   const body=new CANNON.Body({mass:3,material:matBox});
   body.addShape(new CANNON.Box(new CANNON.Vec3(1,.8,2.2)));
@@ -395,29 +503,49 @@ const dozer={ speed:0, group:new THREE.Group(), wheels:[], bladeMesh:null, body:
 function buildDozerMesh(){
   const g=dozer.group;
   for(const s of [-1,1]){
-    g.add(box(1.3,1.1,5.6,M.track,s*1.7,.75,0));
-    g.add(box(1.34,.3,5.0,new THREE.MeshStandardMaterial({color:0x3a3e46,roughness:.7,metalness:.5}),s*1.7,1.15,0));
+    const tr=box(1.3,1.1,5.6,M.track,s*1.7,.75,0); addOutline(tr,.015,.04); g.add(tr);
+    g.add(box(1.36,.3,5.0,M.darkMetal,s*1.7,1.18,0)); // 履带盖板
+    g.add(box(1.4,.18,5.7,M.yellow,s*1.7,1.32,0)); // 卡通挡泥板
     for(let i=0;i<4;i++){
-      const wh=new THREE.Mesh(new THREE.CylinderGeometry(.42,.42,1.36,14),M.darkMetal);
-      wh.rotation.z=Math.PI/2; wh.position.set(s*1.7,.55,-1.9+i*1.27); wh.castShadow=true; g.add(wh);
+      const wh=new THREE.Mesh(new THREE.CylinderGeometry(.44,.44,1.38,12),M.darkMetal);
+      wh.rotation.z=Math.PI/2; wh.position.set(s*1.7,.55,-1.9+i*1.27); wh.castShadow=true;
+      addOutline(wh,.015,.04); g.add(wh);
+      const hub=new THREE.Mesh(new THREE.CylinderGeometry(.16,.16,1.42,8),M.yellow);
+      hub.rotation.z=Math.PI/2; hub.position.copy(wh.position); g.add(hub);
       dozer.wheels.push(wh);
     }
   }
-  g.add(box(2.6,.9,4.2,M.yellow,0,1.55,0));
+  const hull=box(2.6,.9,4.2,M.yellow,0,1.55,0); addOutline(hull,.02,.05); g.add(hull);
   g.add(box(2.7,.25,4.3,M.darkMetal,0,1.12,0));
+  // 铲刀：hazard 纹 + 铆钉行 + 描边（视觉件，物理包围盒在 buildDozerBody 里不动）
+  const blade=box(5.6,1.3,.35,new THREE.MeshToonMaterial({gradientMap:_gradMap,map:hazardTexture()}),0,1.0,3.4);
+  addOutline(blade,.012,.04); g.add(blade); dozer.bladeMesh=blade;
+  for(let ri=0;ri<7;ri++){ const rv=new THREE.Mesh(new THREE.SphereGeometry(.09,8,8),M.darkMetal);
+    rv.position.set(-2.4+ri*.8,1.45,3.55); g.add(rv); }
+  for(const s of [-1,1]){ // 液压杆
+    const arm=box(.28,.28,2.2,M.darkMetal,s*1.1,1.5,2.3); arm.rotation.x=.25; g.add(arm);
+    const cyl=new THREE.Mesh(new THREE.CylinderGeometry(.14,.14,1.4,8),M.concrete);
+    cyl.position.set(s*1.1,1.9,1.6); cyl.rotation.x=1.1; cyl.castShadow=true; g.add(cyl);
+  }
   g.add(box(2.2,.5,1.2,M.darkMetal,0,1.5,2.2));
-  const grillMat=new THREE.MeshStandardMaterial({color:0x111318,roughness:.6});
-  for(let i=0;i<3;i++) g.add(box(1.8,.08,1.0,grillMat,0,1.68-i*.02,2.25));
-  g.add(box(2.0,1.5,2.0,M.yellow,0,2.7,-.8));
+  for(let i=0;i<3;i++) g.add(box(1.8,.08,1.0,M.track,0,1.68-i*.02,2.25));
+  // 驾驶室：立柱框架 + 玻璃 + 顶灯行
+  const cabB=box(2.0,1.5,2.0,M.yellow,0,2.7,-.8); addOutline(cabB,.02,.05); g.add(cabB);
   const glassM=M.cabinGlass;
-  g.add(box(1.8,1.0,.12,glassM,0,2.85,.22));
-  g.add(box(.12,1.0,1.8,glassM,-1.0,2.85,-.8)); g.add(box(.12,1.0,1.8,glassM,1.0,2.85,-.8));
-  g.add(box(2.1,.18,2.1,M.darkMetal,0,3.55,-.8));
-  const ex=new THREE.Mesh(new THREE.CylinderGeometry(.12,.14,1.4,10),M.darkMetal);
-  ex.position.set(.8,2.9,.9); ex.castShadow=true; g.add(ex);
-  dozer.exhaustTip.position.set(.8,3.7,.9); g.add(dozer.exhaustTip);
-  const lampM=new THREE.MeshStandardMaterial({color:0xfff6c8,emissive:0xffedb0,emissiveIntensity:2});
-  g.add(box(.35,.3,.15,lampM,-.7,2.2,2.82)); g.add(box(.35,.3,.15,lampM,.7,2.2,2.82));
+  g.add(box(1.7,.95,.14,glassM,0,2.9,.22));
+  g.add(box(.14,.95,1.7,glassM,-1.0,2.9,-.8)); g.add(box(.14,.95,1.7,glassM,1.0,2.9,-.8));
+  g.add(box(2.1,.16,2.1,M.darkMetal,0,3.55,-.8)); // 顶盖
+  for(const px of [-.7,0,.7]) g.add(box(.16,1.5,.16,M.darkMetal,px,2.7,.22)); // 前立柱
+  const ex=new THREE.Mesh(new THREE.CylinderGeometry(.14,.17,1.5,10),M.darkMetal);
+  ex.position.set(.85,2.9,.9); ex.castShadow=true; addOutline(ex,.02,.04); g.add(ex);
+  const exTip=new THREE.Mesh(new THREE.CylinderGeometry(.17,.17,.22,10),M.track);
+  exTip.position.set(.85,3.68,.9); g.add(exTip);
+  dozer.exhaustTip.position.set(.85,3.85,.9); g.add(dozer.exhaustTip);
+  const lampM=new THREE.MeshBasicMaterial({color:0xfff3c0});
+  const lL=box(.36,.3,.16,lampM,-.7,2.2,2.82,false), lR=box(.36,.3,.16,lampM,.7,2.2,2.82,false);
+  addOutline(lL,.02,.03); addOutline(lR,.02,.03); g.add(lL,lR);
+  g.add(box(1.2,.3,.1,M.darkMetal,0,3.62,.25)); // 顶灯条座
+  for(const px of [-.4,0,.4]) g.add(box(.22,.2,.1,lampM,px,3.62,.32,false));
   g.traverse(o=>{ if(o.isMesh){o.castShadow=true; o.receiveShadow=true;} });
   scene.add(g);
 }
@@ -469,12 +597,21 @@ function processHits(){
     if(d){
       if(d.hp<=0 || !destructibles.has(d.body.id)) continue;
       const hard=spd>11||v>8;
+      const nowHit=performance.now();
       damageDestructible(d, hard?2:1, v, true);
       if(v>3){ thump(Math.min(1,v/12)); }
       // 震屏：每个可撞物只在第一次被撞到时抖一下；碎块剐蹭、重复顶撞、撞墙都不抖
       // 子弹时间：只有楼房首撞才触发，碎块/小物件/重复顶撞不触发
+      // 星爆：楼房每次被撞都有（350ms 节流防刷屏），不只首撞；撞碎不在此分支（已删出注册表）
       if(!d._shook){ d._shook=true; shakeCam(d.kind==='building'?1.2:d.kind==='car'?.8:.5);
         if(d.kind==='building') triggerBullet(); }
+      if(d.kind==='building'){
+        if(!d._burstT || nowHit-d._burstT>350){
+          d._burstT=nowHit;
+          const bp=d.body.position;
+          if(destructibles.has(d.body.id)) burst(bp.x,Math.max(3,d.size.h*.6),bp.z,1.1);
+        }
+      }
       // 撞上东西：同一个目标 0.5s 内只罚一次速（按撞击强度 8%~18%），
       // 之前贴着建筑每帧连乘 .55，速度几帧就归零，这就是短暂停顿的来源
       const now=performance.now();
@@ -504,7 +641,7 @@ function processHits(){
 /* ---- 伤害 / 碎裂 ---- */
 const fragMats=new Map();
 function fragMat(color){ const k=color.getHex();
-  if(!fragMats.has(k)) fragMats.set(k,new THREE.MeshStandardMaterial({color,roughness:.9}));
+  if(!fragMats.has(k)) fragMats.set(k,new THREE.MeshToonMaterial({color,gradientMap:_gradMap}));
   return fragMats.get(k); }
 // 小物件：直接压扁（cannon 里是 static body，只做视觉压扁 + 计分，不走碎裂）
 function squashSmall(d, dirX, dirZ){
@@ -512,13 +649,16 @@ function squashSmall(d, dirX, dirZ){
   destructibles.delete(d.body.id);
   world.removeBody(d.body); scene.remove(d.group);
   kills++;
-  // 压扁残骸：贴地薄片，保留 6 秒
+  // 卡通压扁印：深色扁边框 + 本体色薄片，保留 6 秒
   const s=d.size;
-  const mesh=new THREE.Mesh(new THREE.BoxGeometry(Math.max(.4,s.w*.85),.18,Math.max(.4,s.d*.85)),fragMat(d.color));
-  mesh.position.set(p.x,.1,p.z);
-  mesh.rotation.y=Math.random()*Math.PI;
+  const fw=Math.max(.5,s.w*.95), fd=Math.max(.5,s.d*.95);
+  const rim=new THREE.Mesh(new THREE.BoxGeometry(fw+.3,.1,fd+.3),M.track);
+  rim.position.set(p.x,.06,p.z); rim.rotation.y=Math.random()*Math.PI; scene.add(rim);
+  const mesh=new THREE.Mesh(new THREE.BoxGeometry(fw,.18,fd),fragMat(d.color));
+  mesh.position.set(p.x,.14,p.z);
+  mesh.rotation.y=rim.rotation.y;
   scene.add(mesh);
-  fallings.push({mesh,body:null,life:6,flat:true});
+  fallings.push({mesh,body:null,life:6,flat:true,rim});
   // 碎屑 + 尘
   puff(p.x,1,p.z,8,4,5);
   for(let i=0;i<4;i++) spawnDebrisChunk(p.x,.8,p.z,d.color,.5);
@@ -607,6 +747,7 @@ function toppleBuilding(d,impactV=8){
   }
   puff(p.x,3,p.z,40,9,10);
   puff(p.x,6,p.z,16,10,12);
+  burst(p.x,s.h*.7,p.z,1.8);
   crashBig();
   updateHUD();
 }
@@ -675,6 +816,7 @@ function demolish(d,impactV=8){
   }
   puff(p.x,3,p.z,16,5,10);
   puff(p.x,6,p.z,16,10,12);
+  burst(p.x,2.5,p.z,1.2);
   crashBig();
   updateHUD();
 }
@@ -695,8 +837,9 @@ function clearCity(){
   destructibles.forEach(d=>{ world.removeBody(d.body); scene.remove(d.group); });
   destructibles.clear(); cars.length=0; fragIds.clear();
   debris.forEach(o=>{ scene.remove(o.mesh); world.removeBody(o.body); }); debris.length=0;
-  fallings.forEach(f=>{ scene.remove(f.mesh); if(f.body) world.removeBody(f.body); }); fallings.length=0;
-  floaters.forEach(f=>scene.remove(f.s)); floaters.length=0;
+  fallings.forEach(f=>{ scene.remove(f.mesh); if(f.rim) scene.remove(f.rim); if(f.body) world.removeBody(f.body); }); fallings.length=0;
+  floaters.forEach(f=>{ if(f.s.isSprite&&f.s.material.map===starTexture()){ f.s.visible=false; f.s.removeFromParent(); burstPool.push(f.s); }
+    else scene.remove(f.s); }); floaters.length=0;
   kills=0; score=0; comboN=0; comboT=0; won=false; updateHUD();
 }
 function buildCity(){
@@ -728,7 +871,7 @@ addEventListener('keydown',e=>{
   if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
   keys[e.key.toLowerCase()]=true; engineStart(); ac();
   if(e.key==='r'||e.key==='R') resetDozer();
-  if(e.key==='n'||e.key==='N'){ buildCity(); resetDozer(0,30); toast('新城市已生成',2000); }
+  if(e.key==='n'||e.key==='N'){ buildCity(); resetDozer(0,30); toast('New city generated',2000); }
   if(e.key==='m'||e.key==='M') toggleSound();
 });
 addEventListener('keyup',e=>{ keys[e.key.toLowerCase()]=false; });
@@ -740,14 +883,14 @@ document.querySelectorAll('#touch button').forEach(b=>{
   b.addEventListener('pointerleave',off); b.addEventListener('pointercancel',off);
 });
 $('btnReset').onclick=()=>resetDozer();
-$('btnCity').onclick=()=>{ buildCity(); resetDozer(0,30); toast('新城市已生成',2000); };
-function toggleSound(){ soundOn=!soundOn; $('btnSound').textContent=soundOn?'声音开':'已静音'; if(soundOn){ac();engineStart();} }
+$('btnCity').onclick=()=>{ buildCity(); resetDozer(0,30); toast('New city generated',2000); };
+function toggleSound(){ soundOn=!soundOn; $('btnSound').textContent=soundOn?'SOUND ON':'MUTED'; if(soundOn){ac();engineStart();} }
 $('btnSound').onclick=toggleSound;
 function resetDozer(x=dozer.body.position.x,z=dozer.body.position.z){
   const b=dozer.body;
   b.position.set(Math.max(-80,Math.min(80,x)),3,Math.max(-80,Math.min(80,z)));
   b.quaternion.setFromEuler(0,Math.PI,0); b.velocity.setZero(); b.angularVelocity.setZero();
-  dozer.speed=0; steerSm=0; toast('已扶正',1500);
+  dozer.speed=0; steerSm=0; toast('Reset',1500);
 }
 function readInput(){
   const f=(keys['w']||keys['arrowup']?1:0)+(keys['s']||keys['arrowdown']?-0.65:0);
@@ -770,7 +913,7 @@ window.__diag = () => ({ meshes: (()=>{let n=0; scene.traverse(o=>{if(o.isMesh)n
   yaw: dozer.body? (()=>{ const e=new CANNON.Vec3(0,0,1); dozer.body.quaternion.vmult(e,e); return Math.atan2(e.x,e.z).toFixed(2); })() : null,
   cam: camera.position.toArray().map(v=>+v.toFixed(1)), camTarget: camTarget.toArray().map(v=>+v.toFixed(1)) });
 setTimeout(()=>{ const h=$('hint'); if(h) h.style.display='none'; },6000);
-setTimeout(()=>toast('开上推土机撞过去，车速越快碎得越彻底',4200),300);
+setTimeout(()=>toast('Ram it with the dozer — faster hits smash harder',4200),300);
 window.__BUILD='fix2';
 
 const clock=new THREE.Clock();
@@ -787,6 +930,26 @@ const _YAXIS=new CANNON.Vec3(0,1,0);
 // 直接抄 body.position 会丢掉插值，看起来一顿一顿的
 function renderPos(b){ return b.interpolatedPosition||b.position; }
 function renderQuat(b){ return b.interpolatedQuaternion||b.quaternion; }
+// -- 卡通撞击星爆（硬边多角星，挂在 floaters 里统一消退） --
+const burstPool=[];
+function starTexture(){ return canvasTex('star',(g,w,h)=>{
+  g.clearRect(0,0,w,h);
+  g.fillStyle='#ffe9a3'; g.strokeStyle='#23262b'; g.lineWidth=8;
+  g.beginPath();
+  for(let i=0;i<16;i++){ const a=i*Math.PI/8, r=i%2?34:58;
+    const x=w/2+Math.cos(a)*r, y=h/2+Math.sin(a)*r;
+    i?g.lineTo(x,y):g.moveTo(x,y); }
+  g.closePath(); g.fill(); g.stroke();
+  g.fillStyle='#fff'; g.beginPath(); g.arc(w/2,h/2,14,0,Math.PI*2); g.fill();
+},128,128); }
+function burst(x,y,z,scale=1){
+  let b=burstPool.pop();
+  if(!b){ b=new THREE.Sprite(new THREE.SpriteMaterial({map:starTexture(),transparent:true,depthTest:false})); }
+  scene.add(b); // 回收后再用必须重新加回场景，否则第二栋楼起星星不可见
+  b.visible=true; b.position.set(x,y,z); b.scale.set(7*scale,7*scale,1);
+  b.material.rotation=Math.random()*Math.PI; b.material.opacity=1;
+  floaters.push({s:b,life:.45});
+}
 
 function step(dt){
   // -- 驾驶：全部用指数阻尼平滑，与帧率无关 --
@@ -834,7 +997,7 @@ function step(dt){
   _up.set(0,1,0); b.quaternion.vmult(_up,_up);
   if(_up.y<.55){
     b.applyTorque(new CANNON.Vec3(_up.z*2200,0,-_up.x*2200));
-    if(!step._tipped){ step._tipped=true; toast('翻车了，按 R 扶正',2500); setTimeout(()=>step._tipped=false,3000); }
+    if(!step._tipped){ step._tipped=true; toast('Flipped — press R to reset',2500); setTimeout(()=>step._tipped=false,3000); }
   }
   b.wakeUp();
 
@@ -851,7 +1014,7 @@ function step(dt){
   }
   // 倒塌块：落地（高度低 + 速度慢）或超时 → 碎成小块
   for(let i=fallings.length-1;i>=0;i--){ const f=fallings[i]; f.life-=dt;
-    if(f.flat){ if(f.life<=0){ scene.remove(f.mesh); fallings.splice(i,1); } continue; }
+    if(f.flat){ if(f.life<=0){ scene.remove(f.mesh); if(f.rim) scene.remove(f.rim); fallings.splice(i,1); } continue; }
     const sp=f.body.velocity.length();
     const low=f.body.position.y<3&&sp<4;
     if(low||f.life<=0){ shatterFalling(f,sp); continue; }
@@ -872,10 +1035,10 @@ function step(dt){
   fallings.forEach(f=>{ if(f.body){ f.mesh.position.copy(renderPos(f.body)); f.mesh.quaternion.copy(renderQuat(f.body)); } });
   for(let i=floaters.length-1;i>=0;i--){ const f=floaters[i]; f.life-=dt;
     f.s.position.y+=dt*3; f.s.material.opacity=Math.min(1,f.life);
-    if(f.life<=0){ scene.remove(f.s); floaters.splice(i,1); } }
+    if(f.life<=0){ if(f.s.isSprite&&f.s.material.map===starTexture()){ f.s.visible=false; f.s.removeFromParent(); burstPool.push(f.s); }
+      else scene.remove(f.s);
+      floaters.splice(i,1); } }
 
-  // -- 特效 --
-  updateDust(dt);
   const spd=Math.abs(dozer.speed);
   spdEl.textContent=Math.round(spd*3.6);
   engineUpdate(dozer.speed,throttle);
