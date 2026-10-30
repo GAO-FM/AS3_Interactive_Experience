@@ -4,6 +4,8 @@ A stylized 3D demolition sandbox for the browser. You drive a bulldozer around a
 cartoon city and flatten it — every building cracks, tilts, topples, and shatters into
 debris that settles into rubble and fades away.
 
+![Screenshot](docs/screenshot.png)
+
 ## The idea
 
 The brief for this assignment asked for an *interactive experience* that could not be
