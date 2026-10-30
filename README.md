@@ -6,6 +6,9 @@ debris that settles into rubble and fades away.
 
 ![Screenshot](docs/screenshot.png)
 
+> Design & development log, including the user test log and AI-tool usage:
+> see [`PROCESS.md`](PROCESS.md).
+
 ## The idea
 
 The brief for this assignment asked for an *interactive experience* that could not be
